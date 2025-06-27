@@ -17,16 +17,14 @@
         <li>R ：重启游戏</li>
         <li>鼠标拖动视角，滚轮缩放</li>
       </ul>
-      
+
       <!-- 添加开始和暂停按钮 -->
       <div>
-        <button @click="toggleGame">{{ isGamePaused ? '继续游戏' : '暂停游戏' }}</button>
-        <button @click="startGame" v-if="isGameOver">开始新游戏</button>
+        <button @click="toggleGame">{{ isGamePaused ? '开始游戏' : '暂停游戏' }}</button>
       </div>
     </div>
   </div>
 </template>
-
 
 <script setup>
 import * as THREE from 'three'
@@ -36,6 +34,7 @@ import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 const container = ref(null)
 const score = ref(0)
 const isGameOver = ref(false)
+const isGamePaused = ref(true) // 默认游戏暂停
 
 // 游戏尺寸
 const COLS = 5
@@ -106,11 +105,11 @@ const SHAPES = [
 // 3D数组初始化
 function createEmptyBoard() {
   const board = []
-  for(let x=0; x<COLS; x++){
+  for (let x = 0; x < COLS; x++) {
     board[x] = []
-    for(let y=0; y<HEIGHT; y++){
+    for (let y = 0; y < HEIGHT; y++) {
       board[x][y] = []
-      for(let z=0; z<ROWS; z++){
+      for (let z = 0; z < ROWS; z++) {
         board[x][y][z] = null
       }
     }
@@ -127,10 +126,10 @@ function cloneBlocks(blocks) {
 function rotateX(blocks) {
   const size = blocks.length
   const newBlocks = Array(size).fill(0).map(() => Array(size).fill(0).map(() => Array(size).fill(0)))
-  for(let y=0; y<size; y++){
-    for(let x=0; x<size; x++){
-      for(let z=0; z<size; z++){
-        newBlocks[y][x][z] = blocks[size-1 - z][x][y]
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        newBlocks[y][x][z] = blocks[size - 1 - z][x][y]
       }
     }
   }
@@ -139,10 +138,10 @@ function rotateX(blocks) {
 function rotateY(blocks) {
   const size = blocks.length
   const newBlocks = Array(size).fill(0).map(() => Array(size).fill(0).map(() => Array(size).fill(0)))
-  for(let y=0; y<size; y++){
-    for(let x=0; x<size; x++){
-      for(let z=0; z<size; z++){
-        newBlocks[y][x][z] = blocks[y][size-1 - z][x]
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        newBlocks[y][x][z] = blocks[y][size - 1 - z][x]
       }
     }
   }
@@ -151,10 +150,10 @@ function rotateY(blocks) {
 function rotateZ(blocks) {
   const size = blocks.length
   const newBlocks = Array(size).fill(0).map(() => Array(size).fill(0).map(() => Array(size).fill(0)))
-  for(let y=0; y<size; y++){
-    for(let x=0; x<size; x++){
-      for(let z=0; z<size; z++){
-        newBlocks[y][x][z] = blocks[size-1 - x][y][z]
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        newBlocks[y][x][z] = blocks[size - 1 - x][y][z]
       }
     }
   }
@@ -164,15 +163,15 @@ function rotateZ(blocks) {
 // 判断能否放置
 function canPlace(blocks, pos, board) {
   const size = blocks.length
-  for(let y=0; y<size; y++){
-    for(let x=0; x<size; x++){
-      for(let z=0; z<size; z++){
-        if(blocks[y][x][z]){
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        if (blocks[y][x][z]) {
           const bx = pos.x + x
           const by = pos.y + y
           const bz = pos.z + z
-          if(bx < 0 || bx >= COLS || by < 0 || by >= HEIGHT || bz < 0 || bz >= ROWS) return false
-          if(board[bx][by][bz]) return false
+          if (bx < 0 || bx >= COLS || by < 0 || by >= HEIGHT || bz < 0 || bz >= ROWS) return false
+          if (board[bx][by][bz]) return false
         }
       }
     }
@@ -183,10 +182,10 @@ function canPlace(blocks, pos, board) {
 // 固定方块到board
 function placeBlocks(blocks, pos, board, color) {
   const size = blocks.length
-  for(let y=0; y<size; y++){
-    for(let x=0; x<size; x++){
-      for(let z=0; z<size; z++){
-        if(blocks[y][x][z]){
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        if (blocks[y][x][z]) {
           const bx = pos.x + x
           const by = pos.y + y
           const bz = pos.z + z
@@ -200,27 +199,27 @@ function placeBlocks(blocks, pos, board, color) {
 // 清理满层
 function clearFullLayers(board) {
   let cleared = 0
-  for(let y=0; y<HEIGHT; y++){
+  for (let y = 0; y < HEIGHT; y++) {
     let full = true
-    outer: for(let x=0; x<COLS; x++){
-      for(let z=0; z<ROWS; z++){
-        if(!board[x][y][z]){
+    outer: for (let x = 0; x < COLS; x++) {
+      for (let z = 0; z < ROWS; z++) {
+        if (!board[x][y][z]) {
           full = false
           break outer
         }
       }
     }
-    if(full){
-      for(let yy = y; yy < HEIGHT-1; yy++){
-        for(let x=0; x<COLS; x++){
-          for(let z=0; z<ROWS; z++){
-            board[x][yy][z] = board[x][yy+1][z]
+    if (full) {
+      for (let yy = y; yy < HEIGHT - 1; yy++) {
+        for (let x = 0; x < COLS; x++) {
+          for (let z = 0; z < ROWS; z++) {
+            board[x][yy][z] = board[x][yy + 1][z]
           }
         }
       }
-      for(let x=0; x<COLS; x++){
-        for(let z=0; z<ROWS; z++){
-          board[x][HEIGHT-1][z] = null
+      for (let x = 0; x < COLS; x++) {
+        for (let z = 0; z < ROWS; z++) {
+          board[x][HEIGHT - 1][z] = null
         }
       }
       cleared++
@@ -233,7 +232,7 @@ function clearFullLayers(board) {
 const state = reactive({
   board: createEmptyBoard(),
   currentPiece: null,
-  currentPos: {x: 0, y: 0, z: 0},
+  currentPos: { x: 0, y: 0, z: 0 },
   currentColor: 0xffffff,
   isGameOver: false,
 })
@@ -244,7 +243,7 @@ let animationId = null
 let dropTimer = null
 
 function initThree() {
-  if(renderer){
+  if (renderer) {
     renderer.dispose()
     container.value.innerHTML = ''
   }
@@ -255,7 +254,7 @@ function initThree() {
   camera.position.set(COLS * 1.5, HEIGHT * 1.5, ROWS * 2)
   camera.lookAt(COLS / 2, HEIGHT / 2, ROWS / 2)
 
-  renderer = new THREE.WebGLRenderer({antialias:true})
+  renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setSize(width, height)
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -267,9 +266,8 @@ function initThree() {
   controls.dampingFactor = 0.1
   controls.update()
 
-
   scene.add(new THREE.AmbientLight(0x606060))
-  
+
   const pointLight1 = new THREE.PointLight(0xffffff, 0.6)
   pointLight1.position.set(COLS, HEIGHT * 1.5, ROWS)
   pointLight1.castShadow = true
@@ -289,7 +287,7 @@ function initThree() {
 
   // 地面阴影接收平面
   const floorGeometry = new THREE.PlaneGeometry(COLS * BLOCK_SIZE, ROWS * BLOCK_SIZE)
-  const floorMaterial = new THREE.ShadowMaterial({opacity: 0.3})
+  const floorMaterial = new THREE.ShadowMaterial({ opacity: 0.3 })
   const floor = new THREE.Mesh(floorGeometry, floorMaterial)
   floor.rotation.x = -Math.PI / 2
   floor.position.set(
@@ -419,27 +417,27 @@ function createCube(x, y, z, color) {
 
 // 更新场景
 function updateScene() {
-  if(!blocksGroup) return
+  if (!blocksGroup) return
   blocksGroup.clear()
 
-  for(let x=0; x<COLS; x++){
-    for(let y=0; y<HEIGHT; y++){
-      for(let z=0; z<ROWS; z++){
+  for (let x = 0; x < COLS; x++) {
+    for (let y = 0; y < HEIGHT; y++) {
+      for (let z = 0; z < ROWS; z++) {
         const color = state.board[x][y][z]
-        if(color){
+        if (color) {
           blocksGroup.add(createCube(x, y, z, color))
         }
       }
     }
   }
 
-  if(state.currentPiece){
+  if (state.currentPiece) {
     const blocks = state.currentPiece
     const size = blocks.length
-    for(let y=0; y<size; y++){
-      for(let x=0; x<size; x++){
-        for(let z=0; z<size; z++){
-          if(blocks[y][x][z]){
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        for (let z = 0; z < size; z++) {
+          if (blocks[y][x][z]) {
             const bx = state.currentPos.x + x
             const by = state.currentPos.y + y
             const bz = state.currentPos.z + z
@@ -468,7 +466,7 @@ function spawnPiece() {
     y: HEIGHT - 3,
     z: Math.floor(ROWS / 2) - 1
   }
-  if(!canPlace(blocks, startPos, state.board)){
+  if (!canPlace(blocks, startPos, state.board)) {
     state.isGameOver = true
     isGameOver.value = true
     stopGame()
@@ -481,15 +479,15 @@ function spawnPiece() {
 
 // 方块下落
 function dropPiece() {
-  if(state.isGameOver) return
+  if (state.isGameOver) return
   const newPos = { ...state.currentPos, y: state.currentPos.y - 1 }
-  if(canPlace(state.currentPiece, newPos, state.board)){
+  if (canPlace(state.currentPiece, newPos, state.board)) {
     state.currentPos = newPos
   } else {
     // 固定
     placeBlocks(state.currentPiece, state.currentPos, state.board, state.currentColor)
     const cleared = clearFullLayers(state.board)
-    if(cleared > 0) {
+    if (cleared > 0) {
       score.value += cleared * 100
     }
     spawnPiece()
@@ -497,119 +495,41 @@ function dropPiece() {
   updateScene()
 }
 
-// 游戏主循环
-function startGame() {
-  state.board = createEmptyBoard()
-  state.isGameOver = false
-  isGameOver.value = false
-  score.value = 0
-  spawnPiece()
-  updateScene()
-  if(dropTimer) clearInterval(dropTimer)
-  dropTimer = setInterval(dropPiece, 800)
-  animate()
+// 暂停和开始
+function toggleGame() {
+  isGamePaused.value = !isGamePaused.value;
+
+  if (isGamePaused.value) {
+    // 暂停游戏，停止动画和方块下落
+    cancelAnimationFrame(animationId);
+    clearInterval(dropTimer);
+    dropTimer = null;  // 清除计时器
+  } else {
+    // 开始游戏，恢复动画和方块下落
+    animate();
+    dropTimer = setInterval(dropPiece, 500);  // 启动方块下落计时器
+    spawnPiece();  // 开始时生成第一个方块
+  }
 }
 
+// 停止游戏
 function stopGame() {
-  if(dropTimer){
-    clearInterval(dropTimer)
-    dropTimer = null
-  }
-  if(animationId){
-    cancelAnimationFrame(animationId)
-    animationId = null
-  }
-}
-
-function hardDrop() {
-  if(state.isGameOver) return
-  let newPos = {...state.currentPos}
-  while(canPlace(state.currentPiece, {x:newPos.x, y:newPos.y-1, z:newPos.z}, state.board)){
-    newPos.y -= 1
-  }
-  state.currentPos = newPos
-  dropPiece()
-}
-
-function movePiece(dx, dz) {
-  if(state.isGameOver) return
-  const newPos = {x: state.currentPos.x + dx, y: state.currentPos.y, z: state.currentPos.z + dz}
-  if(canPlace(state.currentPiece, newPos, state.board)){
-    state.currentPos = newPos
-    updateScene()
-  }
-}
-
-function moveLeft() { movePiece(-1, 0) }
-function moveRight() { movePiece(1, 0) }
-function moveForward() { movePiece(0, -1) }
-function moveBackward() { movePiece(0, 1) }
-
-function rotateYPiece() {
-  if(state.isGameOver) return
-  const rotated = rotateY(state.currentPiece)
-  if(canPlace(rotated, state.currentPos, state.board)){
-    state.currentPiece = rotated
-    updateScene()
-  }
-}
-
-function rotateXPiece() {
-  if(state.isGameOver) return
-  const rotated = rotateX(state.currentPiece)
-  if(canPlace(rotated, state.currentPos, state.board)){
-    state.currentPiece = rotated
-    updateScene()
-  }
-}
-
-function rotateZPiece() {
-  if(state.isGameOver) return
-  const rotated = rotateZ(state.currentPiece)
-  if(canPlace(rotated, state.currentPos, state.board)){
-    state.currentPiece = rotated
-    updateScene()
-  }
-}
-
-function handleKeydown(e) {
-  if(state.isGameOver && e.key.toLowerCase() === 'r'){
-    startGame()
-    return
-  }
-  switch(e.key.toLowerCase()){
-    case 'arrowleft':
-    case 'a': moveLeft(); break
-    case 'arrowright':
-    case 'd': moveRight(); break
-    case 'w': moveForward(); break
-    case 's': moveBackward(); break
-    case 'arrowdown': dropPiece(); break
-    case 'arrowup': rotateYPiece(); break
-    case 'q': rotateXPiece(); break
-    case 'e': rotateZPiece(); break
-    case ' ': hardDrop(); break
-  }
+  cancelAnimationFrame(animationId)
+  clearInterval(dropTimer)
 }
 
 onMounted(() => {
   initThree()
-  startGame()
-  window.addEventListener('resize', () => {
-    if(!container.value) return
-    const width = container.value.clientWidth
-    const height = container.value.clientHeight
-    camera.aspect = width / height
-    camera.updateProjectionMatrix()
-    renderer.setSize(width, height)
-  })
+  updateScene()
+
+  dropTimer = setInterval(dropPiece, 500)
+  animate()
 })
 
 onBeforeUnmount(() => {
-  stopGame()
-  window.removeEventListener('resize', () => {})
+  cancelAnimationFrame(animationId)
+  clearInterval(dropTimer)
 })
-
 </script>
 
 <style scoped>
