@@ -35,5 +35,6 @@ npm run build
     <td align="center"><img src="image/1.png" alt="示意图1" width="280" /></td>
     <td align="center"><img src="image/2.png" alt="示意图2" width="280" /></td>
     <td align="center"><img src="image/3.png" alt="示意图3" width="280" /></td>
+    <td align="center"><img src="image/4.png" alt="示意图4" width="280" /></td>
   </tr>
 </table>
