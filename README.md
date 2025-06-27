@@ -27,3 +27,13 @@ npm run dev
 ```sh
 npm run build
 ```
+
+**示意图：**  
+
+<table align="center" cellspacing="10" cellpadding="0" style="width: 100%; max-width: 900px;">
+  <tr>
+    <td align="center"><img src="image/1.png" alt="示意图1" width="280" /></td>
+    <td align="center"><img src="image/2.png" alt="示意图2" width="280" /></td>
+    <td align="center"><img src="image/3.png" alt="示意图3" width="280" /></td>
+  </tr>
+</table>
