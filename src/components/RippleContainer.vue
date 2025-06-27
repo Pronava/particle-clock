@@ -1,321 +1,178 @@
 <template>
-  <div
-    ref="container"
-    class="ripple-container"
-    @mousemove="onMouseMove"
-    @click="onClick"
-  >
-    <canvas ref="glCanvas" class="gl-canvas"></canvas>
-    <canvas ref="contentCanvas" class="content-canvas" style="display:none;"></canvas>
-
-    <!-- DOM 结构可交互元素 -->
-    <div class="interactive-ui">
-      <input type="text" placeholder="输入点什么..." />
-      <button>按钮</button>
-    </div>
-
-    <!-- 用于截图的 DOM -->
-    <div ref="contentDom" class="content-dom" aria-hidden="true">
-      <h2>水波涟漪扭曲内容示范</h2>
-      <input placeholder="输入点什么..." />
-      <p>鼠标移动和点击会产生水波折射效果</p>
-      <img src="https://picsum.photos/300/150" alt="示例图片" />
-    </div>
-  </div>
+  <canvas ref="canvas" class="webgl-canvas"></canvas>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from "vue";
 
-const container = ref(null)
-const glCanvas = ref(null)
-const contentCanvas = ref(null)
-const contentDom = ref(null)
-
-let gl, program, animationFrameId
-let startTime = 0
-const MAX_RIPPLES = 30
-const DURATION = 1.5
-let ripples = []
+const canvas = ref(null);
+let gl = null;
+let animationId = null;
+let program = null;
+let startTime = 0;
 
 const vertexShaderSource = `
-attribute vec2 a_position;
-varying vec2 v_uv;
-void main() {
-  v_uv = a_position * 0.5 + 0.5;
-  gl_Position = vec4(a_position, 0, 1);
-}
-`
+  attribute vec2 a_position;
+  varying vec2 v_uv;
+
+  void main() {
+    v_uv = (a_position + 1.0) / 2.0; // 转到[0,1]区间UV
+    gl_Position = vec4(a_position, 0.0, 1.0);
+  }
+`;
 
 const fragmentShaderSource = `
-precision highp float;
-uniform float u_time;
-uniform vec2 u_resolution;
-uniform sampler2D u_contentTex;
-uniform int u_rippleCount;
-uniform vec2 u_ripples[${MAX_RIPPLES}];
-uniform float u_startTimes[${MAX_RIPPLES}];
-uniform float u_strengths[${MAX_RIPPLES}];
-varying vec2 v_uv;
+  precision mediump float;
 
-float ripple(vec2 uv, vec2 center, float progress, float strength, float aspect) {
-  if(progress < 0.0 || progress > 1.0) return 0.0;
-  float maxRadius = 0.4;
-  float radius = progress * maxRadius;
-  vec2 diff = uv - center;
-  diff.x /= aspect;
-  float dist = length(diff);
-  float width = 0.02;
-  float diffDist = dist - radius;
-  float wave = exp(-diffDist * diffDist / (width * width));
-  float amplitude = strength * pow(1.0 - progress, 3.0);
-  return wave * amplitude;
-}
+  uniform sampler2D u_texture;
+  uniform float u_time;
+  varying vec2 v_uv;
 
-void main() {
-  vec2 uv = v_uv;
-  float aspect = u_resolution.x / u_resolution.y;
-  uv.x *= aspect;
+  void main() {
+    // 水波折射参数
+    float wave = 0.02;
+    float speed = 3.0;
+    float freq = 20.0;
 
-  float totalDistortion = 0.0;
-  for(int i=0; i<${MAX_RIPPLES}; i++) {
-    if(i >= u_rippleCount) break;
-    float progress = u_time - u_startTimes[i];
-    if(progress >= 0.0 && progress <= 1.0) {
-      totalDistortion += ripple(uv, u_ripples[i] * vec2(aspect, 1.0), progress, u_strengths[i], aspect);
-    }
+    // 计算折射偏移量（波纹扰动UV坐标）
+    float offsetX = wave * sin(freq * v_uv.y + speed * u_time);
+    float offsetY = wave * cos(freq * v_uv.x + speed * u_time);
+
+    vec2 uv = v_uv + vec2(offsetX, offsetY);
+
+    // 从纹理采样颜色
+    vec4 color = texture2D(u_texture, uv);
+
+    gl_FragColor = color;
   }
-
-  vec2 displacedUV = v_uv + vec2(totalDistortion * 0.03);
-  vec4 color = texture2D(u_contentTex, displacedUV);
-  gl_FragColor = color;
-}
-`
+`;
 
 function createShader(gl, type, source) {
-  const shader = gl.createShader(type)
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    console.error(gl.getShaderInfoLog(shader))
-    return null
+    console.error("Shader compile failed:", gl.getShaderInfoLog(shader));
+    return null;
   }
-  return shader
+  return shader;
 }
 
-function createProgram(gl, vs, fs) {
-  const program = gl.createProgram()
-  gl.attachShader(program, vs)
-  gl.attachShader(program, fs)
-  gl.linkProgram(program)
+function createProgram(gl, vertexShader, fragmentShader) {
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error(gl.getProgramInfoLog(program))
-    return null
+    console.error("Program link failed:", gl.getProgramInfoLog(program));
+    return null;
   }
-  return program
+  return program;
 }
 
-let positionBuffer, positionLoc
-let u_time, u_resolution, u_rippleCount
-let u_ripples = [], u_startTimes = [], u_strengths = []
-let u_contentTex
-let contentTexture
+function loadTexture(gl, image) {
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
 
-function setupWebGL(canvasEl) {
-  gl = canvasEl.getContext('webgl')
-  const vs = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource)
-  const fs = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource)
-  program = createProgram(gl, vs, fs)
-  gl.useProgram(program)
+  // 设置参数防止纹理大小限制
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 
-  positionBuffer = gl.createBuffer()
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+  // 上传图片数据
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  return texture;
+}
+
+function initGL(image) {
+  const c = canvas.value;
+  const dpr = window.devicePixelRatio || 1;
+
+  // 设置画布尺寸为CSS尺寸×dpr，保证高清
+  c.width = c.clientWidth * dpr;
+  c.height = c.clientHeight * dpr;
+
+  gl = c.getContext("webgl") || c.getContext("experimental-webgl");
+  if (!gl) {
+    alert("浏览器不支持WebGL");
+    return;
+  }
+
+  gl.viewport(0, 0, c.width, c.height);
+
+  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+  program = createProgram(gl, vertexShader, fragmentShader);
+
+  gl.useProgram(program);
+
+  // 顶点数据，绘制2个三角形覆盖整个画布
+  const positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  const positions = new Float32Array([
     -1, -1, 1, -1, -1, 1,
-    -1, 1, 1, -1, 1, 1
-  ]), gl.STATIC_DRAW)
+    -1, 1, 1, -1, 1, 1,
+  ]);
+  gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
 
-  positionLoc = gl.getAttribLocation(program, 'a_position')
-  gl.enableVertexAttribArray(positionLoc)
-  gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0)
+  const aPositionLoc = gl.getAttribLocation(program, "a_position");
+  gl.enableVertexAttribArray(aPositionLoc);
+  gl.vertexAttribPointer(aPositionLoc, 2, gl.FLOAT, false, 0, 0);
 
-  u_time = gl.getUniformLocation(program, 'u_time')
-  u_resolution = gl.getUniformLocation(program, 'u_resolution')
-  u_rippleCount = gl.getUniformLocation(program, 'u_rippleCount')
+  // 创建纹理
+  const texture = loadTexture(gl, image);
 
-  for (let i = 0; i < MAX_RIPPLES; i++) {
-    u_ripples.push(gl.getUniformLocation(program, `u_ripples[${i}]`))
-    u_startTimes.push(gl.getUniformLocation(program, `u_startTimes[${i}]`))
-    u_strengths.push(gl.getUniformLocation(program, `u_strengths[${i}]`))
+  // 绑定纹理到uniform
+  const uTextureLoc = gl.getUniformLocation(program, "u_texture");
+  gl.uniform1i(uTextureLoc, 0); // 纹理单元0
+
+  startTime = performance.now();
+
+  function render() {
+    const currentTime = (performance.now() - startTime) / 1000;
+
+    // 传时间
+    const uTimeLoc = gl.getUniformLocation(program, "u_time");
+    gl.uniform1f(uTimeLoc, currentTime);
+
+    // 清屏
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    // 绑定纹理
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // 绘制
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    animationId = requestAnimationFrame(render);
   }
-
-  u_contentTex = gl.getUniformLocation(program, 'u_contentTex')
-  contentTexture = gl.createTexture()
-  gl.bindTexture(gl.TEXTURE_2D, contentTexture)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  animationId = requestAnimationFrame(render);
 }
 
-function drawContentToCanvas() {
-  const ctx = contentCanvas.value.getContext('2d')
-  const w = contentCanvas.value.width
-  const h = contentCanvas.value.height
-  ctx.clearRect(0, 0, w, h)
+onMounted(() => {
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  // 这里换成你自己的图片地址或本地静态资源路径
+  img.src = "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=600&q=80";
 
-  ctx.save()
-  ctx.scale(1, -1)
-  ctx.translate(0, -h)
-
-  const centerX = w / 2
-
-  ctx.fillStyle = 'white'
-  ctx.font = 'bold 28px sans-serif'
-  const title = '水波涟漪扭曲内容示范'
-  const titleWidth = ctx.measureText(title).width
-  ctx.fillText(title, centerX - titleWidth / 2, 50)
-
-  ctx.font = '20px sans-serif'
-  const inputText = '输入点什么...'
-  const inputWidth = ctx.measureText(inputText).width
-  ctx.fillText(inputText, centerX - inputWidth / 2, 100)
-
-  const desc = '鼠标移动和点击会产生水波折射效果'
-  const descWidth = ctx.measureText(desc).width
-  ctx.fillText(desc, centerX - descWidth / 2, 140)
-
-  const img = new Image()
-  img.crossOrigin = 'anonymous'
-  img.src = 'https://picsum.photos/300/150'
   img.onload = () => {
-    ctx.drawImage(img, centerX - 150, 160, 300, 150)
-    ctx.restore()
-    updateTexture()
-  }
-}
-
-function updateTexture() {
-  gl.activeTexture(gl.TEXTURE0)
-  gl.bindTexture(gl.TEXTURE_2D, contentTexture)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, contentCanvas.value)
-  gl.uniform1i(u_contentTex, 0)
-}
-
-function render(time) {
-  if (!gl) return
-  time /= 1000
-  if (!startTime) startTime = time
-  const elapsed = time - startTime
-
-  ripples = ripples.filter(r => elapsed - r.startTime < DURATION)
-
-  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
-  gl.clearColor(0, 0, 0, 1)
-  gl.clear(gl.COLOR_BUFFER_BIT)
-
-  gl.uniform1f(u_time, elapsed)
-  gl.uniform2f(u_resolution, gl.canvas.width, gl.canvas.height)
-  gl.uniform1i(u_rippleCount, ripples.length)
-
-  for (let i = 0; i < MAX_RIPPLES; i++) {
-    if (i < ripples.length) {
-      const r = ripples[i]
-      gl.uniform2f(u_ripples[i], r.x, r.y)
-      gl.uniform1f(u_startTimes[i], r.startTime)
-      gl.uniform1f(u_strengths[i], r.strength)
-    } else {
-      gl.uniform2f(u_ripples[i], 0, 0)
-      gl.uniform1f(u_startTimes[i], 0)
-      gl.uniform1f(u_strengths[i], 0)
-    }
-  }
-
-  gl.drawArrays(gl.TRIANGLES, 0, 6)
-  animationFrameId = requestAnimationFrame(render)
-}
-
-function addRipple(x, y, strength) {
-  if (ripples.length >= MAX_RIPPLES) ripples.shift()
-  ripples.push({ x, y, startTime: performance.now() / 1000 - startTime, strength })
-}
-
-function onMouseMove(e) {
-  const rect = glCanvas.value.getBoundingClientRect()
-  const x = (e.clientX - rect.left) / rect.width
-  const y = 1 - (e.clientY - rect.top) / rect.height
-  addRipple(x, y, 0.4)
-}
-
-function onClick(e) {
-  const rect = glCanvas.value.getBoundingClientRect()
-  const x = (e.clientX - rect.left) / rect.width
-  const y = 1 - (e.clientY - rect.top) / rect.height
-  addRipple(x, y, 1.0)
-}
-
-function resize() {
-  const cw = container.value.clientWidth
-  const ch = 400
-  glCanvas.value.width = cw * devicePixelRatio
-  glCanvas.value.height = ch * devicePixelRatio
-  glCanvas.value.style.width = cw + 'px'
-  glCanvas.value.style.height = ch + 'px'
-
-  contentCanvas.value.width = cw * devicePixelRatio
-  contentCanvas.value.height = ch * devicePixelRatio
-  drawContentToCanvas()
-  updateTexture()
-}
-
-onMounted(async () => {
-  setupWebGL(glCanvas.value)
-  await nextTick()
-  resize()
-  window.addEventListener('resize', resize)
-  animationFrameId = requestAnimationFrame(render)
-})
+    initGL(img);
+  };
+});
 
 onBeforeUnmount(() => {
-  if (animationFrameId) cancelAnimationFrame(animationFrameId)
-  window.removeEventListener('resize', resize)
-})
+  if (animationId) cancelAnimationFrame(animationId);
+});
 </script>
 
 <style scoped>
-.ripple-container {
-  position: relative;
-  width: 100%;
+.webgl-canvas {
+  width: 600px;
   height: 400px;
-  overflow: hidden;
-  background: black;
-}
-
-.gl-canvas {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.interactive-ui {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 2;
-  display: flex;
-  gap: 12px;
-}
-
-input, button {
-  padding: 6px 12px;
-  font-size: 16px;
-}
-
-.content-dom {
-  display: none;
+  border: 1px solid #333;
+  display: block;
+  image-rendering: pixelated;
 }
 </style>
